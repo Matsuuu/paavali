@@ -18,7 +18,16 @@ const FILE_MAPPINGS = {
  */
 async function downloadFile(url, name) {
     const response = await fetch(url);
-    const data = await response.text();
+    let data;
+
+    if (response.headers.get("content-type") === "binary/octet-stream") {
+        const buffer = await response.arrayBuffer();
+        const decoder = new TextDecoder("iso-8859-1");
+        data = decoder.decode(buffer);
+    } else {
+        data = await response.text();
+    }
+
     writeFileSync(DOWNLOADS_DIR + "/" + name, data, "utf8");
 }
 
@@ -34,9 +43,9 @@ async function getFiles() {
         mkdirSync(DOWNLOADS_DIR);
     }
 
-    downloadFile(POSTI_PCODE_FILE_URL, FILE_MAPPINGS.POSTI);
-    downloadFile(PAAVO_POSTAL_CODE_MAPPING_URL.replace("{lang}", "fi"), FILE_MAPPINGS.PAAVO_FI);
-    downloadFile(PAAVO_POSTAL_CODE_MAPPING_URL.replace("{lang}", "sv"), FILE_MAPPINGS.PAAVO_SV);
+    await downloadFile(POSTI_PCODE_FILE_URL, FILE_MAPPINGS.POSTI);
+    await downloadFile(PAAVO_POSTAL_CODE_MAPPING_URL.replace("{lang}", "fi"), FILE_MAPPINGS.PAAVO_FI);
+    await downloadFile(PAAVO_POSTAL_CODE_MAPPING_URL.replace("{lang}", "sv"), FILE_MAPPINGS.PAAVO_SV);
 }
 
 function processFiles() {
@@ -47,7 +56,7 @@ function processFiles() {
      */
     function handlePostiRow(row) {
         const regex =
-            /[A-Z]+\d{8}(?<postal_code>\d{5})(?<city_fi>\w+)\s*(?<city_sv>\w+)\s*\d{8}.{6}(?<region_fi>.+?(?=\s))\s*(?<region_sv>.+?(?=\s))/;
+            /[A-Z]+\d{8}(?<postal_code>\d{5})(?<city_fi>[A-Za-zÖÄÅöäå]*)\s*(?<city_sv>[A-Za-zÖÄÅöäå]*)\s*\d{8}.{6}(?<region_fi>.+?(?=\s))\s*(?<region_sv>.+?(?=\s))/;
 
         const result = regex.exec(row);
         if (!result) {
@@ -61,5 +70,5 @@ function processFiles() {
     console.log(postiResult);
 }
 
-getFiles();
+// await getFiles();
 processFiles();
