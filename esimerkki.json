@@ -1,0 +1,21 @@
+{
+  "regions": [
+    {
+      "name_fi": "Varsinais-Suomi",
+      "name_sv": "Egentliga Finland",
+      "cities": [
+        {
+          "name_fi": "Turku",
+          "name_sv": "Åbo",
+          "postal_code_areas": [
+            {
+              "code": "21200",
+              "name_fi": "Raisio Keskus",
+              "name_sv": "Reso centrum"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
