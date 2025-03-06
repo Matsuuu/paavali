@@ -12,3 +12,9 @@ https://stat.fi/tup/paavo/tietosisalto.html - "Postinumero-kunta -avain 2025 (xl
 ## Reasoning
 
 Nobody else provided this kind of data idk
+
+## Usage
+
+Take the data from `./output` or update it by running `npm install && npm start`
+
+The data is downloaded from hardcoded addresses so if it updates, so will this repo's code

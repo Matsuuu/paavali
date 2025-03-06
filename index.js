@@ -134,6 +134,6 @@ function processFiles() {
     writeFileSync("output/output.json", JSON.stringify(regions, null, 4));
 }
 
-// await getFiles();
-// await filesToCSV();
+await getFiles();
+await filesToCSV();
 processFiles();
