@@ -1,15 +1,17 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { createWriteStream, existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import XLSX from "xlsx";
+import { Readable } from "stream";
 
-const POSTI_PCODE_FILE_URL = "https://www.posti.fi/webpcode/unzip/PCF_20250304.dat";
-const PAAVO_POSTAL_CODE_MAPPING_URL =
-    "https://pxdata.stat.fi/PXWeb/api/v1/{lang}/Postinumeroalueittainen_avoin_tieto/uusin/paavo_pxt_12ey.px";
+const MUNICIPALITY_INFO_EXCEL_URL = "https://media.graphassets.com/DICwBPn5Q8uifsM6dwow";
+const ZIP_CODE_INFO_EXCEL_URL = "https://stat.fi/media/uploads/tup/paavo/alueryhmittely_posnro_2025_fi.xlsx";
 
 const DOWNLOADS_DIR = "downloads";
 
 const FILE_MAPPINGS = {
-    POSTI: "posti.dat",
-    PAAVO_FI: "paavo_fi.json",
-    PAAVO_SV: "paavo_sv.json",
+    MUNICIPALITY_EXCEL: "munis.xlsx",
+    ZIP_CODE_EXCEL: "zips.xlsx",
+    MUNICIPALITY_CSV: "munis.csv",
+    ZIP_CODE_CSV: "zips.csv",
 };
 
 /**
@@ -18,17 +20,27 @@ const FILE_MAPPINGS = {
  */
 async function downloadFile(url, name) {
     const response = await fetch(url);
-    let data;
+    const fileStream = createWriteStream(DOWNLOADS_DIR + "/" + name);
+    Readable.fromWeb(response.body).pipe(fileStream);
+    console.log("Downloaded ", DOWNLOADS_DIR + "/" + name);
+}
 
-    if (response.headers.get("content-type") === "binary/octet-stream") {
-        const buffer = await response.arrayBuffer();
-        const decoder = new TextDecoder("iso-8859-1");
-        data = decoder.decode(buffer);
-    } else {
-        data = await response.text();
-    }
+async function filesToCSV() {
+    const handle = (from, to) => {
+        console.log("Reading xlsx file");
+        const workBook = XLSX.readFile(from);
+        console.log("Writing xlsx entity to csv");
+        XLSX.writeFile(workBook, to, { bookType: "csv" });
+    };
 
-    writeFileSync(DOWNLOADS_DIR + "/" + name, data, "utf8");
+    console.log("Transforming Municipality Excel to CSV");
+    handle(
+        DOWNLOADS_DIR + "/" + FILE_MAPPINGS.MUNICIPALITY_EXCEL,
+        DOWNLOADS_DIR + "/" + FILE_MAPPINGS.MUNICIPALITY_CSV,
+    );
+
+    console.log("Transforming Zip Code Excel to CSV");
+    handle(DOWNLOADS_DIR + "/" + FILE_MAPPINGS.ZIP_CODE_EXCEL, DOWNLOADS_DIR + "/" + FILE_MAPPINGS.ZIP_CODE_CSV);
 }
 
 /**
@@ -43,32 +55,56 @@ async function getFiles() {
         mkdirSync(DOWNLOADS_DIR);
     }
 
-    await downloadFile(POSTI_PCODE_FILE_URL, FILE_MAPPINGS.POSTI);
-    await downloadFile(PAAVO_POSTAL_CODE_MAPPING_URL.replace("{lang}", "fi"), FILE_MAPPINGS.PAAVO_FI);
-    await downloadFile(PAAVO_POSTAL_CODE_MAPPING_URL.replace("{lang}", "sv"), FILE_MAPPINGS.PAAVO_SV);
+    await downloadFile(MUNICIPALITY_INFO_EXCEL_URL, FILE_MAPPINGS.MUNICIPALITY_EXCEL);
+    await downloadFile(ZIP_CODE_INFO_EXCEL_URL, FILE_MAPPINGS.ZIP_CODE_EXCEL);
 }
 
 function processFiles() {
-    const postiData = readDownload(FILE_MAPPINGS.POSTI);
+    const municipalityData = readDownload(FILE_MAPPINGS.MUNICIPALITY_CSV);
+    const municipalityRows = municipalityData.split("\n");
+    municipalityRows.shift(); // Remove trash row
 
-    /**
-     * @param {string} row
-     */
-    function handlePostiRow(row) {
-        const regex =
-            /[A-Z]+\d{8}(?<postal_code>\d{5})(?<city_fi>[A-Za-zÖÄÅöäå]*)\s*(?<city_sv>[A-Za-zÖÄÅöäå]*)\s*\d{8}.{6}(?<region_fi>.+?(?=\s))\s*(?<region_sv>.+?(?=\s))/;
+    const headers = municipalityRows.shift().split(",");
+    console.log(headers);
 
-        const result = regex.exec(row);
-        if (!result) {
-            console.log(row);
+    const regionFiIndex = headers.findIndex(col => col.trim() === "Maakunta");
+    const regionSvIndex = headers.findIndex(col => col === "Maakunnan nimi ruotsiksi");
+    const regionEnIndex = headers.findIndex(col => col === "Maakunnan nimi englanniksi");
+    const regionNumberIndex = headers.findIndex(col => col === "Maakunnan koodi");
+
+    const munFiIndex = headers.findIndex(col => col === "Kunta");
+    const munEnIndex = headers.findIndex(col => col === "Kunnan nimi englanniksi");
+    const munSvIndex = headers.findIndex(col => col === "Kunnan nimi ruotsiksi");
+    const munNumberIndex = headers.findIndex(col => col === "Kunnan numero");
+
+    const regions = {};
+    for (const rowString of municipalityRows) {
+        const row = rowString.split(",");
+        const regionNumber = row[regionNumberIndex];
+        if (!regions[regionNumber]) {
+            regions[regionNumber] = {
+                name_fi: row[regionFiIndex],
+                name_sv: row[regionSvIndex],
+                name_en: row[regionEnIndex],
+                number: row[regionNumberIndex],
+                municipalities: [],
+            };
         }
-        return {};
+        regions[regionNumber].municipalities.push({
+            name_fi: row[munFiIndex].trim(),
+            name_en: row[munEnIndex].trim(),
+            name_sv: row[munSvIndex].trim(),
+            number: row[munNumberIndex].trim(),
+        });
     }
 
-    const postiResult = postiData.split("\n").map(handlePostiRow);
+    if (!existsSync("output")) {
+        mkdirSync("output");
+    }
 
-    console.log(postiResult);
+    writeFileSync("output/output.json", JSON.stringify(regions, null, 4));
 }
 
 // await getFiles();
+// await filesToCSV();
 processFiles();

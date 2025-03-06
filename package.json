@@ -12,5 +12,8 @@
     "description": "",
     "devDependencies": {
         "@types/node": "^22.13.9"
+    },
+    "dependencies": {
+        "xlsx": "^0.18.5"
     }
 }
