@@ -19,11 +19,17 @@ const FILE_MAPPINGS = {
  * @param {string | URL | Request} url
  * @param {import("fs").PathOrFileDescriptor} name
  */
-async function downloadFile(url, name) {
-    const response = await fetch(url);
-    const fileStream = createWriteStream(DOWNLOADS_DIR + "/" + name);
-    Readable.fromWeb(response.body).pipe(fileStream);
-    console.log("Downloaded ", DOWNLOADS_DIR + "/" + name);
+function downloadFile(url, name) {
+    return new Promise(async resolve => {
+        const response = await fetch(url);
+        const fileStream = createWriteStream(DOWNLOADS_DIR + "/" + name);
+        Readable.fromWeb(response.body)
+            .pipe(fileStream)
+            .on("finish", () => {
+                console.log("Downloaded ", DOWNLOADS_DIR + "/" + name);
+                resolve();
+            });
+    });
 }
 
 async function filesToCSV() {
@@ -66,6 +72,7 @@ function processFiles() {
     municipalityRows.shift(); // Remove trash row
     municipalityData = municipalityRows.join("\n");
 
+    console.log("Processing municipality data");
     const munisCsv = parse(municipalityData, {
         from: 1,
         columns: true,
@@ -97,6 +104,7 @@ function processFiles() {
         };
     }
 
+    console.log("Processing Zip code data");
     const zipsData = readDownload(FILE_MAPPINGS.ZIP_CODE_CSV);
 
     const zipsCsv = parse(zipsData, {
@@ -127,11 +135,13 @@ function processFiles() {
         });
     }
 
+    console.log("Writing...");
     if (!existsSync("output")) {
         mkdirSync("output");
     }
 
     writeFileSync("output/output.json", JSON.stringify(regions, null, 4));
+    console.log("Wrote to output/output.json");
 }
 
 await getFiles();
