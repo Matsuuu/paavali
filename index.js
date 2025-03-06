@@ -1,6 +1,7 @@
 import { createWriteStream, existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import XLSX from "xlsx";
 import { Readable } from "stream";
+import { parse } from "csv-parse/sync";
 
 const MUNICIPALITY_INFO_EXCEL_URL = "https://media.graphassets.com/DICwBPn5Q8uifsM6dwow";
 const ZIP_CODE_INFO_EXCEL_URL = "https://stat.fi/media/uploads/tup/paavo/alueryhmittely_posnro_2025_fi.xlsx";
@@ -60,41 +61,69 @@ async function getFiles() {
 }
 
 function processFiles() {
-    const municipalityData = readDownload(FILE_MAPPINGS.MUNICIPALITY_CSV);
+    let municipalityData = readDownload(FILE_MAPPINGS.MUNICIPALITY_CSV);
     const municipalityRows = municipalityData.split("\n");
     municipalityRows.shift(); // Remove trash row
+    municipalityData = municipalityRows.join("\n");
 
-    const headers = municipalityRows.shift().split(",");
-    console.log(headers);
-
-    const regionFiIndex = headers.findIndex(col => col.trim() === "Maakunta");
-    const regionSvIndex = headers.findIndex(col => col === "Maakunnan nimi ruotsiksi");
-    const regionEnIndex = headers.findIndex(col => col === "Maakunnan nimi englanniksi");
-    const regionNumberIndex = headers.findIndex(col => col === "Maakunnan koodi");
-
-    const munFiIndex = headers.findIndex(col => col === "Kunta");
-    const munEnIndex = headers.findIndex(col => col === "Kunnan nimi englanniksi");
-    const munSvIndex = headers.findIndex(col => col === "Kunnan nimi ruotsiksi");
-    const munNumberIndex = headers.findIndex(col => col === "Kunnan numero");
+    const munisCsv = parse(municipalityData, {
+        from: 1,
+        columns: true,
+        skip_empty_lines: true,
+        trim: true,
+    });
 
     const regions = {};
-    for (const rowString of municipalityRows) {
-        const row = rowString.split(",");
-        const regionNumber = row[regionNumberIndex];
+    for (const row of munisCsv) {
+        const regionNumber = row["Maakunnan koodi"];
         if (!regions[regionNumber]) {
             regions[regionNumber] = {
-                name_fi: row[regionFiIndex],
-                name_sv: row[regionSvIndex],
-                name_en: row[regionEnIndex],
-                number: row[regionNumberIndex],
-                municipalities: [],
+                name_fi: row["Maakunta"],
+                name_sv: row["Maakunnan nimi ruotsiksi"],
+                name_en: row["Maakunnan nimi englanniksi"],
+                number: regionNumber,
+                municipalities: {},
             };
         }
-        regions[regionNumber].municipalities.push({
-            name_fi: row[munFiIndex].trim(),
-            name_en: row[munEnIndex].trim(),
-            name_sv: row[munSvIndex].trim(),
-            number: row[munNumberIndex].trim(),
+
+        const municipalityNumber = row["Kunnan numero"];
+
+        regions[regionNumber].municipalities[municipalityNumber] = {
+            name_fi: row["Kunta"].trim(),
+            name_en: row["Kunnan nimi englanniksi"].trim(),
+            name_sv: row["Kunnan nimi ruotsiksi"].trim(),
+            number: municipalityNumber,
+            neighborhoods: [],
+        };
+    }
+
+    const zipsData = readDownload(FILE_MAPPINGS.ZIP_CODE_CSV);
+
+    const zipsCsv = parse(zipsData, {
+        columns: true,
+        skip_empty_lines: true,
+        trim: true,
+        bom: true,
+    });
+
+    for (const row of zipsCsv) {
+        const zip = row["posti_alue"];
+        if (!zip) {
+            break;
+        }
+        const regionNumber = row["maakunta"];
+        const municipalityNumber = row["kunta"];
+
+        const municipality = regions[regionNumber]?.municipalities?.[municipalityNumber];
+        if (!municipality) {
+            console.log(row);
+            console.log("Can't find", { regionNumber, municipalityNumber });
+            continue;
+        }
+        municipality.neighborhoods.push({
+            name_fi: row["nimi"],
+            name_sv: row["namn"],
+            zip,
         });
     }
 
