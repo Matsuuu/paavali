@@ -2,6 +2,7 @@ import { createWriteStream, existsSync, mkdirSync, readFileSync, writeFileSync }
 import XLSX from "xlsx";
 import { Readable } from "stream";
 import { parse } from "csv-parse/sync";
+import { splitMultiNeighborhoods } from "./multi-part-identifier.js";
 
 const MUNICIPALITY_INFO_EXCEL_URL = "https://media.graphassets.com/DICwBPn5Q8uifsM6dwow";
 const ZIP_CODE_INFO_EXCEL_URL = "https://stat.fi/media/uploads/tup/paavo/alueryhmittely_posnro_2025_fi.xlsx";
@@ -66,6 +67,31 @@ async function getFiles() {
     await downloadFile(ZIP_CODE_INFO_EXCEL_URL, FILE_MAPPINGS.ZIP_CODE_EXCEL);
 }
 
+/**
+ * @typedef Region
+ * @property { string } name_fi
+ * @property { string } name_sv
+ * @property { string } name_en
+ * @property { string } number
+ * @property { Record<string, Municipality> } municipalities
+ * */
+
+/**
+ * @typedef Municipality
+ * @property { string } name_fi
+ * @property { string } name_sv
+ * @property { string } name_en
+ * @property { string } number
+ * @property { Neighborhood[] } neighborhoods
+ * */
+
+/**
+ * @typedef Neighborhood
+ * @property { string } name_fi
+ * @property { string } name_sv
+ * @property { string } zip
+ * */
+
 function processFiles() {
     let municipalityData = readDownload(FILE_MAPPINGS.MUNICIPALITY_CSV);
     const municipalityRows = municipalityData.split("\n");
@@ -80,6 +106,7 @@ function processFiles() {
         trim: true,
     });
 
+    /** @type { Record<string, Region> } */
     const regions = {};
     for (const row of munisCsv) {
         const regionNumber = row["Maakunnan koodi"];
@@ -114,6 +141,8 @@ function processFiles() {
         bom: true,
     });
 
+    const regionsWithNeighborhoodSplit = structuredClone(regions);
+
     for (const row of zipsCsv) {
         const zip = row["posti_alue"];
         if (!zip) {
@@ -140,10 +169,40 @@ function processFiles() {
         mkdirSync("output");
     }
 
-    writeFileSync("output/output.json", JSON.stringify(regions, null, 4));
-    console.log("Wrote to output/output.json");
+    writeFileSync("output/by_zip.json", JSON.stringify(regions, null, 4));
+    console.log("Wrote to output/by_zip.json");
+
+    console.log("Splitting multi-parts...");
+
+    for (const row of zipsCsv) {
+        const zip = row["posti_alue"];
+        if (!zip) {
+            break;
+        }
+        const regionNumber = row["maakunta"];
+        const municipalityNumber = row["kunta"];
+
+        const municipality = regionsWithNeighborhoodSplit[regionNumber]?.municipalities?.[municipalityNumber];
+        if (!municipality) {
+            console.log(row);
+            console.log("Can't find", { regionNumber, municipalityNumber });
+            continue;
+        }
+
+        /** @type { Neighborhood } */
+        const neighborhood = {
+            name_fi: row["nimi"],
+            name_sv: row["namn"],
+            zip,
+        };
+
+        municipality.neighborhoods = [...municipality.neighborhoods, ...splitMultiNeighborhoods(neighborhood)];
+    }
+
+    writeFileSync("output/split_inside_zip.json", JSON.stringify(regionsWithNeighborhoodSplit, null, 4));
+    console.log("Wrote to output/split_inside_zip.json");
 }
 
-await getFiles();
-await filesToCSV();
+// await getFiles();
+// await filesToCSV();
 processFiles();
